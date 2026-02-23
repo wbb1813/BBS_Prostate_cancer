@@ -1,0 +1,16 @@
+id	study	sample	Bcell.intensity	Luminal.intensity	pt	bl	benign.tumor
+pt.008.3M.15c-008	15c-008	pt.008.3M	1.15E-05	0.000136004	8	3M	Tumor
+pt.008.3V.15c-008	15c-008	pt.008.3V	4.91E-06	3.31E-05	8	3V	Benign
+pt.026.4G.15c-008	15c-008	pt.026.4G	2.51E-06	2.19E-05	26	4G	Benign
+pt.026.4R.15c-008	15c-008	pt.026.4R	1.42E-06	0.000119625	26	4R	Tumor
+pt.031.2X.15c-008	15c-008	pt.031.2X	2.89E-06	2.64E-05	31	2X	Benign
+pt.043.1K.15c-008	15c-008	pt.043.1K	5.58E-06	5.10E-05	43	1K	Benign
+pt.043.1X.15c-008	15c-008	pt.043.1X	2.09E-06	7.60E-05	43	1X	Tumor
+pt.049.2AI.15c-008	15c-008	pt.049.2AI	1.19E-05	5.82E-05	49	2AI	Benign
+pt.049.2M.15c-008	15c-008	pt.049.2M	1.38E-05	6.00E-05	49	2M	Tumor
+pt.031.2A.15c-008	15c-008	pt.031.2A	7.20E-07	0.000118244	31	2A	Tumor
+pt.0046.F3.Moonshot	Moonshot	pt.0046.F3	2.88E-06	9.23E-05	46	F3	Benign
+pt.0097.F6.Moonshot	Moonshot	pt.0097.F6	7.65E-07	9.18E-05	97	F6	Benign
+pt.0104.E9.Moonshot	Moonshot	pt.0104.E9	1.31E-06	1.48E-05	104	E9	Benign
+pt.0162.F4.Moonshot	Moonshot	pt.0162.F4	4.13E-07	8.77E-06	162	F4	Benign
+pt.0204.I4.Moonshot	Moonshot	pt.0204.I4	2.08E-06	3.10E-05	204	I4	Benign

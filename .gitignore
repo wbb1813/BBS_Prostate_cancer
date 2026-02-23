@@ -1,0 +1,6 @@
+# macOS
+.DS_Store
+
+# Large files (>100MB)
+data/combat_corrected_tpm_BENIGN.txt
+data/combat_corrected_tpm_TUMOR.txt
