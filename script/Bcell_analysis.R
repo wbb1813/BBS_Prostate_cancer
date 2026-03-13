@@ -11,6 +11,9 @@ df$study <- ifelse(df$study=='15c-008', 'Non-recurrence', 'Recurrence')
 # 15c-008 Non-recurrence
 # Moonshot Recurrence
 
+# Cell distance 
+df_distance <- read.delim('../data/Intercell_distance.tsv')
+
 # B cell score 
 benign_sig_score_file='../data/Signature_score_benign.txt'
 benign_sig_score_df=read.delim(benign_sig_score_file)
@@ -51,7 +54,7 @@ p1 <- ggplot(paired_df, aes(x = Benign, y = Tumor)) +
   ) +
   theme_classic()
 p1
-ggsave("correlation_15c008.pdf", p1, path = outdir, width = 4, height = 4)
+ggsave("correlation_15c008.pdf", p1, path = outdir, width = 3.5, height = 4)
 
 # ============================================================
 # 2. Compare Non-recurrence Benign with Recurrence (boxplot + Wilcox)
@@ -84,7 +87,7 @@ p2 <- ggplot(comp2_df, aes(x = group, y = normalized_Bcell, fill = group)) +
   theme_classic() +
   theme(legend.position = "none")
 p2
-ggsave("Non_rec_benign_vs_rec.pdf", p2,path = outdir, width = 2.5, height = 4)
+ggsave("Non_rec_benign_vs_rec.pdf", p2,path = outdir, width = 1.8, height = 3.5)
 
 # ============================================================
 # 3. Compare Non-recurrence Tumor with Recurrence (boxplot + Wilcox)
@@ -150,8 +153,6 @@ p4
 ggsave("matched_benign_vs_tumor_15c008.pdf", p4, path = outdir, width = 3, height = 4)
 
 cat("\nDone! PDFs saved.\n")
-
-
 
 # ============================================================
 # 5. youden index 
@@ -249,11 +250,33 @@ ggsave('B_cell_density_confusion_matrix.pdf',path = outdir,width = 5,height = 4.
 df_benign$normalized_Bcell=df_benign$Bcell.intensity/df_benign$Luminal.intensity
 median(df_benign$normalized_Bcell[which(df_benign$study=='Non-recurrence')])
 median(df_benign$normalized_Bcell[which(df_benign$study=='Recurrence')])
-# ============================================================
-# 6. Correlation between B cell density and B cell score 
-# ============================================================
-benign_sig_score_df$pt=as.integer(sub(".*\\.", "", benign_sig_score_df$Patient))
 
-df_score_density=merge(benign_sig_score_df[,c('pt','B_cell_33520406')],paired_df,by='pt')
+# ============================================================
+# 6. Compare cell distance between Non-recurrence and Recurrence in adjacent tissue
+# ============================================================
+df_distance_meta=merge(df_distance, df,by.x = 0, by.y = 'id')
+df_distance_benign <- df_distance_meta[which(df_distance_meta$benign.tumor != "Tumor"), ]
 
-cor.test(df_score_density$Benign,df_score_density$B_cell_33520406)
+wilcox_res <- wilcox.test(B.cell ~ study, data = df_distance_benign)
+cat("\n=== Wilcoxon test: Non-recurrence Benign vs Moonshot ===\n")
+print(wilcox_res)
+
+p2 <- ggplot(df_distance_benign, aes(x = study, y = B.cell, fill = study)) +
+  geom_boxplot(outlier.shape = NA, alpha = 0.75) +
+  geom_jitter(width = 0.15, size = 2) +
+  labs(
+    title = "",
+    y = "B cell distance",
+    x ='',
+    subtitle = paste0("Wilcoxon p = ", signif(wilcox_res$p.value, 3))
+  ) +
+  scale_fill_brewer(palette="Dark2")+
+  theme_classic() +
+  theme(legend.position = "none")
+p2
+ggsave("Non_rec_benign_vs_rec_Bcell_distance.pdf", p2,path = outdir, width = 1.8, height = 3.5)
+
+
+
+
+

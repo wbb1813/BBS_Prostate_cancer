@@ -15,7 +15,7 @@ library(ComplexHeatmap)
 library(circlize)
 
 ## ------- Inputs and parameters -------
-meta_file="../data/meta_data/metadata_for_eytan-BIDMC_PCBN_UM.xlsx"
+meta_file="../data/metadata_for_eytan-BIDMC_PCBN_UM.xlsx"
 gene_anno_file='../data/transcript_gene_id_maps.xlsx'
 diff_gene_file='../data/PCBN_tumor_DESeq2_res.txt'
 PCBN_tumor_tpm_file='../data/PCBN_tumor_TPM.txt'
@@ -51,28 +51,99 @@ diff_rnaseq=function(dd,cutoffpvalue,cutofflogfc){
 }
 
 # Volcano plot
-volcano_plot=function(dd,genes=NULL,cutoffpvalue,cutofflogfc,filename,dir='.',width = 5,height = 4.5){
-  #dd$Significant <- ifelse(dd$pvalue < 0.05, "p < 0.05", "p >= 0.05")
-  dd$symbol=rownames(dd)
-  dd=na.omit(dd)
-  p=ggplot(dd, aes(x = log2FoldChange, y = -log10(padj))) +
-    geom_point(aes(color = group_rnaseq)) +
-    scale_color_manual(values = c("blue", "grey","red")) +
-    theme_bw(base_size = 12) + theme(legend.position = "bottom") +
+volcano_plot = function(
+    dd,
+    genes = NULL,
+    cutoffpvalue,
+    cutofflogfc,
+    filename,
+    dir='.',
+    width = 5,
+    height = 4.5,
+    x_cap = 4,                  # informative range (e.g., 3–6)
+    annotate_censored = TRUE
+){
+  library(ggplot2)
+  library(ggrepel)
+  dd$symbol <- rownames(dd)
+  dd <- na.omit(dd)
+  
+  # Split into in-bounds and out-of-bounds
+  inb <- subset(dd, log2FoldChange >= -x_cap & log2FoldChange <= x_cap)
+  left_cen  <- subset(dd, log2FoldChange < -x_cap)
+  right_cen <- subset(dd, log2FoldChange >  x_cap)
+  
+  # Clamp censored points to boundary for plotting
+  if (nrow(left_cen) > 0)  left_cen$plot_x  <- -x_cap else left_cen$plot_x <- numeric(0)
+  if (nrow(right_cen) > 0) right_cen$plot_x <-  x_cap else right_cen$plot_x <- numeric(0)
+  inb$plot_x <- inb$log2FoldChange
+  
+  plot_df <- rbind(inb[, c("plot_x", "padj", "group_rnaseq", "symbol")],
+                   left_cen[, c("plot_x", "padj", "group_rnaseq", "symbol")],
+                   right_cen[, c("plot_x", "padj", "group_rnaseq", "symbol")])
+  
+  plot_df$side <- "in"
+  if (nrow(left_cen)  > 0) plot_df$side[ (nrow(inb)+1) : (nrow(inb)+nrow(left_cen)) ]  <- "left"
+  if (nrow(right_cen) > 0) plot_df$side[ (nrow(inb)+nrow(left_cen)+1) : nrow(plot_df) ] <- "right"
+  
+  # Labels subset
+  lab_df <- if (!is.null(genes)) {
+    subset(dd, symbol %in% genes)
+  } else {
+    dd[0, , drop = FALSE]
+  }
+  
+  p <- ggplot(plot_df, aes(x = plot_x, y = -log10(padj))) +
+    # in-bounds points
+    geom_point(data = subset(plot_df, side == "in"),
+               aes(color = group_rnaseq), alpha = 0.8, size = 1.6, shape = 16) +
+    # # boundary markers for censored points
+    # geom_point(data = subset(plot_df, side != "in"),
+    #            aes(color = group_rnaseq),
+    #            alpha = 0.9, size = 1.8, shape = 17) +  # triangles for censored
+    geom_point(data = subset(plot_df, side != "in"),
+               aes(color = group_rnaseq),
+               alpha = 0.9, size = 1.8, shape = 16) + 
+    scale_color_manual(values = c("blue", "grey", "red")) +
+    theme_classic(base_size = 12) + theme(legend.position = "right") +
+    geom_hline(yintercept = -log10(cutoffpvalue), linetype = "dashed", color = "black") +
+    geom_vline(xintercept = cutofflogfc, linetype = "dotted", color = "black") +
+    geom_vline(xintercept = -cutofflogfc, linetype = "dotted", color = "black") +
     geom_text_repel(
-      data = dd[genes,],
-      aes(label = symbol),
-      size = 5,
+      data = lab_df,
+      aes(
+        x = ifelse(log2FoldChange < -x_cap, -x_cap,
+                   ifelse(log2FoldChange > x_cap, x_cap, log2FoldChange)),
+        y = -log10(padj),
+        label = symbol
+      ),
+      size = 4,
       box.padding = unit(0.35, "lines"),
       point.padding = unit(0.3, "lines"),
-      max.overlaps = Inf
-    )+
-    geom_hline(yintercept=-log10(cutoffpvalue), linetype="dashed", color = "black")+
-    geom_vline(xintercept = cutofflogfc, linetype="dotted", color = "black")+
-    geom_vline(xintercept = -cutofflogfc, linetype="dotted", color = "black")
+      max.overlaps = Inf,
+      segment.color = "black",
+      segment.size = 0.3,
+      min.segment.length = 0
+    ) +
+    coord_cartesian(xlim = c(-x_cap, x_cap)) +
+    labs(
+      x = "log2(Fold Change)",
+      y = expression(-log[10](adjusted~p))
+    )
+  
+  if (annotate_censored) {
+    n_left  <- nrow(left_cen)
+    n_right <- nrow(right_cen)
+    ymax <- max(-log10(dd$padj), na.rm = TRUE)
+    p <- p +
+      annotate("text", x = -x_cap, y = ymax, vjust = -0.3,
+               label = paste0("Censored: ", n_left), size = 3.2) +
+      annotate("text", x =  x_cap, y = ymax, vjust = -0.3,
+               label = paste0("Censored: ", n_right), size = 3.2)
+  }
   
   print(p)
-  ggsave(filename = paste0(dir,'/',filename,'.pdf'),p,width = width,height = height)
+  ggsave(filename = file.path(dir, paste0(filename, '.pdf')), plot = p, width = width, height = height)
 }
 
 
@@ -87,115 +158,115 @@ diff_genes_df=read.delim(diff_gene_file)
 # Identify up and down genes
 diff_gene_group=diff_rnaseq(diff_genes_df,cutoffpvalue = 0.1,cutofflogfc = 0.585)
 # Volcano plot
-volcano_plot(diff_gene_group,cutoffpvalue = 0.1,cutofflogfc = 0.585, filename = 'PCBN_tumor_Volcano',dir=outdir,genes,width = 8,height = 8)
+volcano_plot(diff_gene_group,cutoffpvalue = 0.1,cutofflogfc = 0.585, filename = 'PCBN_tumor_Volcano',dir=outdir,genes,width = 6,height = 4.5)
 
-## ------- Heatmap, label key genes -------
-## PCBN tumor 
-# Load data
-tpm=read.delim(PCBN_tumor_tpm_file)
-# group info
-groups <- PCBN_tumor_meta[,c('SAMPLE ID','RECUR')]
-colnames(groups)=c('sample','group')
-groups$group=ifelse(groups$group=='1','Rec','Non-Rec')
-groups$sample <- as.character(groups$sample)
-groups$group <- factor(groups$group, levels = unique(groups$group))
-ordered_samples <- groups$sample[order(groups$group)]
-tpm <- tpm[, ordered_samples]
-
-# Row label logic (only label selected genes)
-b_cell_label <- c("IGKC","CD79A","TNFRSF13B","IGLC2","BLK","IGHM")
-cell_cycle   <- c("TTK","MCM10","POLQ","UBE2C","CDK1","MKI67")
-selected_genes <- c(b_cell_label, cell_cycle)
-
-# Differential genes (keep ALL DEGs)
-diff_genes_df=diff_genes_df[which(diff_genes_df$padj<=0.1),]
-# keep padj <= 0.1
-deg_genes <- rownames(diff_genes_df)
-
-# Extract TPM of ALL differential genes
-heat_data <- tpm[rownames(tpm) %in% deg_genes, , drop = FALSE]
-
-# Z-score normalization
-heat_scaled <- t(scale(t(heat_data)))
-
-# Gene annotation (rows)
-row_anno_df <- data.frame(
-  B_cell    = ifelse(rownames(heat_scaled) %in% b_cell_label, "B-cell", "Other"),
-  CellCycle = ifelse(rownames(heat_scaled) %in% cell_cycle, "Cell-cycle", "Other")
-)
-
-row_ha <- rowAnnotation(
-  Bcell = row_anno_df$B_cell,
-  CellCycle = row_anno_df$CellCycle,
-  col = list(
-    Bcell = c("B-cell" = "steelblue", "Other" = "grey90"),
-    CellCycle = c("Cell-cycle" = "firebrick", "Other" = "grey90")
-  )
-)
-
-# Create the mark annotation
-label_pos <- match(selected_genes, rownames(heat_scaled))
-mark_ha <- rowAnnotation(
-  mark = anno_mark(
-    at = label_pos,
-    labels = selected_genes,
-    labels_gp = gpar(fontsize = 7),
-    link_width = unit(5, "mm")   # length of leader lines
-  )
-)
-
-
-# Sample group annotation (columns)
-group_levels <- levels(groups$group)
-
-if (length(group_levels) == 1) {
-  group_colors <- c("gray60")
-} else if (length(group_levels) == 2) {
-  group_colors <- c("#66C2A5", "#FC8D62")  # Set2 first two colors
-} else {
-  group_colors <- brewer.pal(n = length(group_levels), "Set2")
-}
-names(group_colors) <- group_levels
-
-col_ha <- HeatmapAnnotation(
-  Group = groups$group[match(ordered_samples, groups$sample)],
-  col = list(Group = group_colors),
-  annotation_height = unit(4, "mm")
-)
-
-# Row label logic (only label selected genes)
-selected_genes <- c(b_cell_label, cell_cycle)
-
-row_labels <- ifelse(
-  rownames(heat_scaled) %in% selected_genes,
-  rownames(heat_scaled),
-  ""   # suppress other labels
-)
-
-# Draw the heatmap
-pdf(file.path(outdir,'heatmap_PCBN_tumor.pdf'),width = 6,height = 6)
-Heatmap(
-  heat_scaled,
-  name = "Z-score",
-  col = colorRamp2(c(-2, 0, 2), c("navy", "white", "firebrick")),
-  
-  cluster_rows = TRUE,
-  cluster_columns = FALSE,    
-  
-  right_annotation = mark_ha,
-  row_names_side = "left",
-  
-  top_annotation = col_ha,
-  
-  show_row_names = F,
-  row_labels = row_labels,
-  row_names_gp = gpar(fontsize = 8),
-  
-  show_column_names = F,
-  column_labels = as.character(groups$group[match(ordered_samples, groups$sample)]),
-  column_names_gp = gpar(fontsize = 10)
-)
-dev.off()
+# ## ------- Heatmap, label key genes -------
+# ## PCBN tumor 
+# # Load data
+# tpm=read.delim(PCBN_tumor_tpm_file)
+# # group info
+# groups <- PCBN_tumor_meta[,c('SAMPLE ID','RECUR')]
+# colnames(groups)=c('sample','group')
+# groups$group=ifelse(groups$group=='1','Rec','Non-Rec')
+# groups$sample <- as.character(groups$sample)
+# groups$group <- factor(groups$group, levels = unique(groups$group))
+# ordered_samples <- groups$sample[order(groups$group)]
+# tpm <- tpm[, ordered_samples]
+# 
+# # Row label logic (only label selected genes)
+# b_cell_label <- c("IGKC","CD79A","TNFRSF13B","IGLC2","BLK","IGHM")
+# cell_cycle   <- c("TTK","MCM10","POLQ","UBE2C","CDK1","MKI67")
+# selected_genes <- c(b_cell_label, cell_cycle)
+# 
+# # Differential genes (keep ALL DEGs)
+# diff_genes_df=diff_genes_df[which(diff_genes_df$padj<=0.1),]
+# # keep padj <= 0.1
+# deg_genes <- rownames(diff_genes_df)
+# 
+# # Extract TPM of ALL differential genes
+# heat_data <- tpm[rownames(tpm) %in% deg_genes, , drop = FALSE]
+# 
+# # Z-score normalization
+# heat_scaled <- t(scale(t(heat_data)))
+# 
+# # Gene annotation (rows)
+# row_anno_df <- data.frame(
+#   B_cell    = ifelse(rownames(heat_scaled) %in% b_cell_label, "B-cell", "Other"),
+#   CellCycle = ifelse(rownames(heat_scaled) %in% cell_cycle, "Cell-cycle", "Other")
+# )
+# 
+# row_ha <- rowAnnotation(
+#   Bcell = row_anno_df$B_cell,
+#   CellCycle = row_anno_df$CellCycle,
+#   col = list(
+#     Bcell = c("B-cell" = "steelblue", "Other" = "grey90"),
+#     CellCycle = c("Cell-cycle" = "firebrick", "Other" = "grey90")
+#   )
+# )
+# 
+# # Create the mark annotation
+# label_pos <- match(selected_genes, rownames(heat_scaled))
+# mark_ha <- rowAnnotation(
+#   mark = anno_mark(
+#     at = label_pos,
+#     labels = selected_genes,
+#     labels_gp = gpar(fontsize = 7),
+#     link_width = unit(5, "mm")   # length of leader lines
+#   )
+# )
+# 
+# 
+# # Sample group annotation (columns)
+# group_levels <- levels(groups$group)
+# 
+# if (length(group_levels) == 1) {
+#   group_colors <- c("gray60")
+# } else if (length(group_levels) == 2) {
+#   group_colors <- c("#66C2A5", "#FC8D62")  # Set2 first two colors
+# } else {
+#   group_colors <- brewer.pal(n = length(group_levels), "Set2")
+# }
+# names(group_colors) <- group_levels
+# 
+# col_ha <- HeatmapAnnotation(
+#   Group = groups$group[match(ordered_samples, groups$sample)],
+#   col = list(Group = group_colors),
+#   annotation_height = unit(4, "mm")
+# )
+# 
+# # Row label logic (only label selected genes)
+# selected_genes <- c(b_cell_label, cell_cycle)
+# 
+# row_labels <- ifelse(
+#   rownames(heat_scaled) %in% selected_genes,
+#   rownames(heat_scaled),
+#   ""   # suppress other labels
+# )
+# 
+# # Draw the heatmap
+# pdf(file.path(outdir,'heatmap_PCBN_tumor.pdf'),width = 6,height = 6)
+# Heatmap(
+#   heat_scaled,
+#   name = "Z-score",
+#   col = colorRamp2(c(-2, 0, 2), c("navy", "white", "firebrick")),
+#   
+#   cluster_rows = TRUE,
+#   cluster_columns = FALSE,    
+#   
+#   right_annotation = mark_ha,
+#   row_names_side = "left",
+#   
+#   top_annotation = col_ha,
+#   
+#   show_row_names = F,
+#   row_labels = row_labels,
+#   row_names_gp = gpar(fontsize = 8),
+#   
+#   show_column_names = F,
+#   column_labels = as.character(groups$group[match(ordered_samples, groups$sample)]),
+#   column_names_gp = gpar(fontsize = 10)
+# )
+# dev.off()
 
 ## ------- Barplot if top B cell and Cell cycle pathways -------
 ## PCBN tumor
@@ -253,7 +324,7 @@ p<-ggplot(sel_df, aes(y = neglog10qvalue, x = Description, fill = Direction))  +
   geom_bar(stat="identity")+scale_fill_manual(values = c("Up" = "#f46d43", "Down" = "#4682b4")) +
   coord_flip()+theme_classic()+xlab('')+theme(legend.position = 'none')+ylab(expression(-log[10]('Adjusted Pvalue')))
 p
-ggsave(file.path(outdir,'expr_cor_PCBN_tumor_benign_path_barplot.pdf'), p, width = 5, height = 3)
+ggsave(file.path(outdir,'expr_cor_PCBN_tumor_benign_path_barplot.pdf'), p, width = 5, height = 3.5)
 
 ## ------- Volcano with B-cell labels -------
 ## PCBN tumor vs benign
@@ -344,40 +415,89 @@ volcano_labeled <- volcano +
     seed = 123                   # reproducible layout
   )
 
-ggsave(file.path(outdir,'volcano_bcell_deoverlap.pdf'), volcano_labeled, width = 3.5, height = 3.5)
+ggsave(file.path(outdir,'volcano_bcell_deoverlap.pdf'), volcano_labeled, width = 3, height = 3.5)
 
 ## ------- Plot B cell gene correlation compared with background -------
 ## PCBN
-sel_df_b_t_plot=cohort1_b_t[which(cohort1_b_t$Genes%in%label_set),c("Genes","cor","Diff_group")]
+sel_df_b_t_plot=cohort1_b_t[which(cohort1_b_t$Genes%in%label_set),c("Genes","cor","Diff_group","adjusted_pvalue")]
+# Clean up gene names (optional but helps with dupes)
+sel_df_b_t_plot <- sel_df_b_t_plot %>%
+  mutate(Genes = trimws(Genes))
 
-df_wide <- sel_df_b_t_plot %>%
+# Prepare the wide table: matched vs background correlations
+#    - Recode groups
+#    - Resolve duplicates per (Genes, Diff_group) by taking mean cor
+
+df_agg <- sel_df_b_t_plot %>%
   mutate(Diff_group = recode(Diff_group,
                              "Benign_Tumor"     = "matched",
                              "Benign_Tumor_BG"  = "background")) %>%
-  pivot_wider(names_from = Diff_group, values_from = cor)
+  group_by(Genes, Diff_group) %>%
+  summarise(
+    cor = mean(cor, na.rm = TRUE),      # or median(cor)
+    .groups = "drop"
+  )
 
-# Order genes by matched correlation (descending)
+df_wide <- df_agg %>%
+  pivot_wider(
+    names_from  = Diff_group,
+    values_from = cor
+  )
+
+# Get adjusted p-values 
+p_matched <- sel_df_b_t_plot %>%
+  filter(Diff_group == "Benign_Tumor") %>%
+  group_by(Genes) %>%
+  summarise(
+    adjusted_pvalue = min(adjusted_pvalue, na.rm = TRUE),  # most significant per gene
+    .groups = "drop"
+  )
+
+df_wide <- df_wide %>%
+  left_join(p_matched, by = "Genes")
+
+# Build p-value display label and its x-position (to the right of the larger point)
+df_wide <- df_wide %>%
+  mutate(
+    # p-value label for the **matched** group only
+    p_lab = ifelse(
+      is.na(adjusted_pvalue),
+      "FDR = NA",
+      paste0("FDR = ", scientific(adjusted_pvalue, digits = 2))
+    ),
+    # place the p-value just to the right of the farther point
+    x_max_row = pmax(background, matched, na.rm = TRUE),
+    x_p = x_max_row + 0.05
+  )
+
+# Order genes by the Benign_Tumor (matched) correlation (desc)
 df_wide <- df_wide %>%
   arrange(desc(matched)) %>%
-  mutate(Genes = factor(Genes, levels = rev(Genes)))  # reversed so top goes first
+  mutate(Genes = factor(Genes, levels = rev(unique(Genes))))  # unique() avoids duplicate-level error
 
-# Plot (segments + open/filled points) 
+# Global x-limits with extra room for p-value text
+x_min <- min(df_wide$matched, df_wide$background, na.rm = TRUE) - 0.05
+x_max <- max(df_wide$matched, df_wide$background, na.rm = TRUE) + 0.20
+
+# Plot: segment + open background + filled matched + p-value (for matched only)
 p <- ggplot(df_wide, aes(y = Genes)) +
-  # connecting segment from background to matched for each gene
+  # connecting segment between background and matched
   geom_segment(aes(x = background, xend = matched, yend = Genes),
                linewidth = 0.6, color = "grey35") +
-  # background: open circles
+  # background (open circle, no p-values)
   geom_point(aes(x = background),
              shape = 21, size = 2.8, stroke = 0.7,
              fill = "white", color = "grey20") +
-  # matched: filled circles
+  # matched (filled circle)
   geom_point(aes(x = matched),
              shape = 16, size = 3.2, color = "#b22222") +
-  scale_x_continuous(limits = c(min(df_wide$background, df_wide$matched, na.rm = TRUE) - 0.05,
-                                max(df_wide$background, df_wide$matched, na.rm = TRUE) + 0.05)) +
+  # p-value label (one per gene, taken from Benign_Tumor)
+  geom_text(aes(x = x_p, label = p_lab),
+            hjust = 0, size = 3.2, color = "black") +
+  scale_x_continuous(limits = c(x_min, x_max)) +
   labs(
-    title = "Matched vs background correlation (Benign Tumor vs BG)",
-    subtitle = "Filled = matched correlation; Open = background correlation",
+    title = "",
+    subtitle = "",
     x = "Pearson correlation (R)",
     y = NULL
   ) +
@@ -391,6 +511,8 @@ p <- ggplot(df_wide, aes(y = Genes)) +
 
 p
 
-ggsave(file.path(outdir,"B_cell_genes_matched_vs_background_corr.pdf"), p, width = 5, height = 4.5)
+ggsave(file.path(outdir,"B_cell_genes_matched_vs_background_corr.pdf"), p, width = 4, height = 5)
+
+
 
 

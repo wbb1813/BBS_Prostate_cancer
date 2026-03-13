@@ -16,6 +16,7 @@ library(grid)
 library(gridExtra)
 library(UpSetR)
 library(patchwork)
+library(DescTools)
 # ---------- OUTPUT DIR ----------
 # outdir <- "/data/Binbin_Kun/binbin/adam/results/recurency_prediction/clincal_score"
 outdir <- "../results/clincal_score_prediction/"
@@ -212,7 +213,7 @@ cols_to_keep <- c(
   "Damico_Risk","CAPRA_strict","CAPRA_no_cores","CAPRA",
   COL_GS_PATH,"path_g_primary","path_g_secondary","path_g_total",
   COL_CORES_POS, COL_CORES_TOTAL, "pct_pos_cores",
-  "CAPRAS_Total"
+  "CAPRAS_Total","Gleason_grade_group"
 )
 cols_to_keep <- unique(cols_to_keep[!is.na(cols_to_keep) & cols_to_keep %in% colnames(df)])
 scored <- df[, cols_to_keep, drop = FALSE]
@@ -262,6 +263,15 @@ eval_df$DAmico_num <- case_when(
   eval_df$DAmico_cat == "High"         ~ 2,
   TRUE ~ as.numeric(NA)
 )
+
+# Define Gleason grade group, GS 6 - 1; GS 3+4 - 2; GS 4+3 - 3; GS 4+4, 3+5, 5+3 - 4; GS 5+4, 4+5, 5+5 - 5
+eval_df=eval_df[!is.na(eval_df$`PATIENT GLEASON SCORE`),]
+eval_df$Gleason_grade_group=NA
+eval_df$Gleason_grade_group[which(eval_df$`PATIENT GLEASON SCORE`%in%c("3+3","3+3 T4"))]=1
+eval_df$Gleason_grade_group[which(eval_df$`PATIENT GLEASON SCORE`%in%c("3+4 T5","3+4"))]=2
+eval_df$Gleason_grade_group[which(eval_df$`PATIENT GLEASON SCORE`%in%c("4+3","4+3 T5"))]=3
+eval_df$Gleason_grade_group[which(eval_df$`PATIENT GLEASON SCORE`%in%c("4+4","4+4 T5","3+5","3+5 T4"))]=4
+eval_df$Gleason_grade_group[which(eval_df$`PATIENT GLEASON SCORE`%in%c("5+5 T4", "5+4","4+5","4+5 T3","5+5","5+4 T3"))]=5
 
 ## save evaluation score
 write.csv(eval_df, file.path(outdir,"evaluation_clinical_score.csv"), row.names = FALSE)
@@ -347,7 +357,8 @@ ggsave(file.path(outdir, "PRAUC_merged_cohort.pdf"), width = 8,height = 4.5)
 eval_df_merged_tumor=eval_df_merged[which(eval_df_merged$`PRESUMED SAMPLE PHENOTYPE`=='TUMOR'),]
 eval_df_merged_tumor=eval_df_merged_tumor[!is.na(eval_df_merged_tumor$`SAMPLE ID`),]
 
-df_merged_sel=eval_df_merged_tumor[,c("SAMPLE ID",'Cohort','RECUR',"PSA","Gleason_Total","ISUP_GRADE")]
+# df_merged_sel=eval_df_merged_tumor[,c("SAMPLE ID",'Cohort','RECUR',"PSA","Gleason_Total","ISUP_GRADE")]
+df_merged_sel=eval_df_merged_tumor[,c("SAMPLE ID",'Cohort','RECUR',"PSA","Gleason_Total","Gleason_grade_group")]
 df_merged_sel$RECUR=ifelse(df_merged_sel$RECUR==1,'Rec','Non-rec')
 df_merged_sel=as.data.frame(df_merged_sel)
 df_merged_sel=melt(df_merged_sel,id.vars = c("SAMPLE ID",'Cohort','RECUR'))
@@ -363,15 +374,35 @@ for (i in unique(df_merged_sel$Cohort)){
       y_lab=j
     }
     
-    p=ggplot(tmp_cohort_var, aes(x = RECUR, y = value, fill = RECUR)) +
-      geom_boxplot(outlier.shape = NA) +
-      geom_jitter(width = 0.2, alpha = 0.5, color = 'black') +
-      scale_fill_brewer(palette="Dark2")+
-      labs(title = i, y = y_lab,x='') +
-      theme_classic()+stat_compare_means(label = "p.format",method = 'wilcox',label.x = 1.5)+
-      theme(
-        plot.title = element_text(hjust = 0.5, face = "bold")  # centered
-      )
+    if (j =='Gleason_grade_group'){
+      # Cochran–Armitage Trend Test
+      # RECUR must be ordered factor or numeric scores
+      cat_result <- CochranArmitageTest(table(tmp_cohort_var$RECUR, tmp_cohort_var$value))
+      trend_p <- cat_result$p.value
+      
+      
+      p <- ggplot(tmp_cohort_var, aes(x = RECUR, y = value, color = RECUR)) +
+        geom_jitter(width = 0.15, height = 0) +
+        stat_summary(fun = mean, geom = "point", size = 3, color = "#4898d3") + 
+        stat_summary(fun = mean, geom = "line", aes(group = 1), color = "#4898d3") +
+        scale_color_brewer(palette = "Dark2") +
+        labs(title = i, y = y_lab, x = '') +
+        theme_classic()
+      
+      p <- p + annotate("text", x = 1.5, y = 5.1, 
+                        label = paste0("Cochran-Armitage p = ", signif(trend_p, 3)),
+                        size = 4)
+    }else{
+      p=ggplot(tmp_cohort_var, aes(x = RECUR, y = value, fill = RECUR)) +
+        geom_boxplot(outlier.shape = NA) +
+        geom_jitter(width = 0.2, height = 0,alpha = 0.5, color = 'black') +
+        scale_fill_brewer(palette="Dark2")+
+        labs(title = i, y = y_lab,x='') +
+        theme_classic()+stat_compare_means(label = "p.format",method = 'wilcox',label.x = 1.5)+
+        theme(
+          plot.title = element_text(hjust = 0.5, face = "bold")  # centered
+        )
+    }
     ggsave(filename = paste0("feature_plot_", i,'_',j, ".pdf"), plot = p,path=outdir, width = 3.5, height = 4)
   }
 }
